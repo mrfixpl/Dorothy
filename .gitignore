@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+config/settings.json
+input/*
+!input/.gitkeep
+custom/*
+!custom/.gitkeep
+output/*
+!output/.gitkeep
