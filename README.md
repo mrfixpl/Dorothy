@@ -141,7 +141,20 @@ Author: mrfix. Unofficial project, not affiliated with Volkswagen Group or Right
 
 Dorothy imports only Python's standard library. Optional external executables retain their own licences; none are redistributed here. Repository inputs, custom assets, generated outputs and local settings are excluded from Git.
 
-## Remaining work
+## Remaining work & TODOs
 
 - Test rebuilt files on real MIB/VC hardware.
 - Configure `https://dorothy.mib-helper.com` redirection to this repository.
+- `.canim` MHIG and MHI2 startup images support
+- `.boot` MST2 startup images support
+- `.mcf` VW/Seat/Skoda HMI assets support
+- `.cff` navigation assets support
+- `.mxf` MapConfig support
+- dividing `input/` folder into file types
+- pulling original assets with `scp` into input folder
+- pushing modified assets with `scp` back into MIB/QNX
+- default credentials for MIB/QNX
+- default directories for assets in MIB/QNX
+- add version number under the banner
+- add line separators for clearer view
+- add CLI colors
