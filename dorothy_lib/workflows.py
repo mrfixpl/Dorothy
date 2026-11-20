@@ -1,4 +1,6 @@
-"""Filesystem workflows: input is read-only; every generated artifact is in output."""
+"""Processing workflows: input is read-only; generated assets go to output.
+Explicit archive/cleanup is implemented separately in session_archive.
+"""
 import json
 import hashlib
 from pathlib import Path
@@ -10,6 +12,7 @@ import struct
 
 from .kzb import detect_variant, extracted_path, identify_file
 from .rebuild import rebuild, validate, read_modifications, write_new_file
+from .terminal import size_change
 from .images import png_signature, jpeg_signature, optimise, optimizer_tools
 from . import atlas, canim
 from .atlas import extract as extract_atlas
@@ -37,6 +40,13 @@ class Workspace:
         atlas_keys={(p.parent,p.stem.casefold()) for p in paths if p.suffix.lower()=='.atlas'}
         # Each atlas + JSON pair is one job; its JSON is still fully validated.
         return [p for p in paths if not (p.suffix.lower()=='.json' and (p.parent,p.stem.casefold()) in atlas_keys)]
+
+    def counts(self):
+        counts = dict.fromkeys(('kzb','canim','atlas','json','other'), 0)
+        for path in self.files():
+            extension = path.suffix.lower().lstrip('.')
+            counts[extension if extension in counts else 'other'] += 1
+        return counts
 
     def asset_key(self, path):
         relative=path.resolve().relative_to(self.input.resolve())
@@ -329,9 +339,11 @@ def optimise_file(workspace,path,progress=None,notice=None):
         exported=output.parent/'exported'
         atlas.extract(path,exported,True)
         savings=0
+        total_before=0
         with tempfile.TemporaryDirectory(dir=output.parent,prefix='.textures-') as temp:
             for index,record in enumerate(info['entries'],1):
                 texture=exported/record['extracted_path'];original=texture.read_bytes()
+                total_before+=len(original)
                 if progress:progress(index,len(info['entries']),record['extracted_path'])
                 candidate=optimise(original,'png',temp,tools)
                 if candidate!=original:
@@ -340,7 +352,9 @@ def optimise_file(workspace,path,progress=None,notice=None):
         write_new_file(output,data)
         companion=atlas.companion_json(path)
         if companion is not None:write_new_file(output.with_suffix('.json'),companion.read_bytes())
-        if notice:notice('atlas_optimisation',saved=savings)
+        if notice:
+            _,percent=size_change(total_before,total_before-savings)
+            notice('atlas_optimisation',saved=savings,before=total_before,after=total_before-savings,percent=f'{percent:.2f}')
         return output,0,0
     integrity(path)
 

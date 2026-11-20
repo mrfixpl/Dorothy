@@ -1,4 +1,4 @@
-# Dorothy v0.2.0
+# Dorothy v0.2.1
 
 ```text
   _____                  _   _
@@ -36,11 +36,11 @@ input/
 
 The workspace lives next to `dorothy.py` regardless of the terminal's current directory. Scanning is recursive, including brand/model subfolders. Formats are selected by extension rather than folder name. Existing files directly in `input/` remain supported. An atlas and matching same-stem JSON count as two physical input files but **one processing job**; the JSON is validated with the atlas. Extension matching is case-insensitive. Missing JSON uses UID asset names. Orphan JSON, unsupported files and malformed inputs are reported, not silently marked valid. Hidden files are ignored; symbolic input/custom paths are not supported.
 
-**Runtime operations never write to `input/`.** All generated files go to `output/`; language preferences go to `config/settings.json`. The repository includes empty folder placeholders only, never vehicle assets. `R` rescans the input; completed tasks return to the menu. Existing outputs are preserved by numbered output folders. Ctrl+C interrupts a task; EOF exits.
+**Processing tasks 1–5 never write to `input/`.** Generated assets go to `output/`; language preferences go to `config/settings.json`. The explicit `A` archive/cleanup action saves a verified backup in `archives/` before removing session files from `input/`, `output/` and `custom/`. The repository includes empty folder placeholders only, never vehicle assets. `R` rescans the input; completed tasks return to the menu. Existing outputs are preserved by numbered output folders. Ctrl+C interrupts a task; EOF exits.
 
 ## Unified menu
 
-The version appears below the banner. The startup screen shows physical file and processing-job counts.
+The version appears below the banner. The startup screen shows physical file and processing-job counts, with separate counters for KZB, CANIM, ATLAS, JSON and other files. JSON companions are counted physically but paired with their atlas as one job.
 
 | Shortcut | Task |
 |---|---|
@@ -49,13 +49,14 @@ The version appears below the banner. The startup screen shows physical file and
 | `3` | Extract All Assets Files |
 | `4` | Optimise Textures inside Files |
 | `5` | Build custom files with provided assets |
+| `A` | Archive & Clean-up: verified ZIP backup, then clear session files |
 | `P` | Pull `.kzb` files directly from MIB using SCP |
 | `R` | Refresh input scan |
 | `L` | Change language |
 | `C` | Program, author, dependencies and BuyCoffee information |
 | `Q` | Show BuyCoffee information and exit |
 
-All numbered actions process the supported input jobs in one batch. Errors are reported per job and do not stop the rest. The former separate `A` atlas shortcut has been removed.
+All numbered actions process the supported input jobs in one batch. Errors are reported per job and do not stop the rest. The `A` shortcut now archives the session; atlas processing remains part of the numbered actions.
 
 ## Resource extraction versus full extraction
 
@@ -112,6 +113,42 @@ Dorothy searches `PATH` and common ImageOptim app bundle locations. No tools are
 
 Example macOS installation: `brew install oxipng jpeg-turbo`. Add the JPEG package's `bin/` directory to `PATH` when keg-only. Debian/Ubuntu alternatives include `optipng` and `libjpeg-turbo-progs`.
 
+## Percentage results and terminal colours
+
+Every optimisation result shows input/output file sizes, saved bytes and the reduction as a percentage of the **original file size**:
+
+```text
+reduction = (original_bytes - output_bytes) / original_bytes * 100
+```
+
+Percentages are displayed to two decimal places. An unchanged file reports `0.00%`. Raw atlas containers therefore report `0.00%`, while exported PNG savings include their own percentage, based on the combined original PNG size.
+
+ANSI colours distinguish counters, progress, success, warnings and failures. They are enabled on compatible terminals and disabled for redirected output, `TERM=dumb`, or when `NO_COLOR` is set. Text and translation files contain no hardcoded escape codes. Colours do not affect saved files.
+
+## Archive & Clean-up
+
+Choose `A` to start a fresh session. The action includes **all regular files**, including hidden files, under `input/`, `output/` and `custom/`. Directory structure is stored with these three top-level names so the ZIP can be restored into a workspace. Empty directories are included. `archives/`, configuration and the program itself are not included.
+
+The archive uses the local computer's date/time and is saved as:
+
+```text
+archives/Dorothy_Archive_2026-11-20_12-34-56.zip
+```
+
+Dorothy first writes a temporary ZIP with ZIP64 support, closes and flushes it, then reads every archived member to verify its CRC, length and SHA-256 against the bytes read from the source. It checks that the session file inventory has not changed before publishing the completed archive. Only then does cleanup begin.
+
+Cleanup removes only the exact files already backed up, rechecking their identity/content before deletion. Folder templates and empty `.gitkeep` placeholders are retained; `input/kzb/`, `input/canim/`, `input/atlas/`, `output/` and `custom/` remain ready for use. Existing archives are never overwritten: if the same timestamp already exists, retry in the next second. Symbolic links and special files are rejected rather than followed.
+
+If writing or verification fails, no source files are removed. If cleanup fails or is interrupted after publishing, the verified archive is retained and its path is reported; already removed files can be recovered from it, and remaining/new files are not forcibly deleted. This is not a multi-folder atomic transaction. Do not edit the session in another process while archiving. The program never recursively deletes an unverified directory tree.
+
+The action can also be run explicitly without the menu:
+
+```sh
+python3 dorothy.py --task A
+```
+
+This command performs the same cleanup, so use it only when you intend to close the current session. ZIPs are excluded from Git.
+
 ## Integrity scope
 
 Option `1` is read-only and dispatches by file format:
@@ -126,11 +163,11 @@ This does not prove runtime compatibility, decode all JPEG pixels, validate ever
 
 `P` asks for a hostname/IPv4 address, SSH user, port, absolute remote folder and legacy SCP preference. It reads `*.kzb` non-recursively with local OpenSSH and saves them under `output/pulled/<host>/`. Normal host-key checks remain enabled, and credentials are handled by SSH without storage in Dorothy. Legacy [SCP `-O`](https://man.openbsd.org/scp) is selectable for QNX systems without SFTP. Paths with spaces/shell metacharacters are rejected.
 
-Copy downloads into `input/kzb/` yourself; Dorothy never changes `input/` or uploads to the vehicle. Partial downloads may remain after a failed transfer.
+Copy downloads into `input/kzb/` yourself; the pull action never changes `input/` or uploads to the vehicle. Partial downloads may remain after a failed transfer.
 
 ## Languages and program information
 
-English is the initial language. Labels, menus, prompts and messages are in `config/lang/en.json`. Copy it to e.g. `pl.json`, translate values and `language_name`, retaining keys and placeholders. Select it with `L`. Missing keys fall back to English; invalid translations are reported. Existing translations should update their menu arrays for v0.2.0.
+English is the initial language. Labels, menus, prompts and messages are in `config/lang/en.json`. Copy it to e.g. `pl.json`, translate values and `language_name`, retaining keys and placeholders. Select it with `L`. Missing keys fall back to English; invalid translations are reported. Existing translations should update their menu arrays and result placeholders for v0.2.1.
 
 `config/about.json` defines author, version, repository and coffee URL; `config/banner.txt` holds the ASCII art. Low-level diagnostics from parsers, Python, SSH or external tools may remain in English. Both `C` and explicit `Q` show the BuyCoffee URL.
 
@@ -144,6 +181,14 @@ python3 -m unittest discover -s tests -v
 ```
 
 Single-task mode returns non-zero on an empty batch, unsupported/failed input or interruption. A custom workspace needs the same `config/` structure. Tests generate their own redistributable fixtures for mixed-format batches, colour promotion, offsets, JSON pairing, readonly inputs, output collisions, optimisation, menus, version and exit behaviour. No vehicle binaries are included in the repository. CI runs on macOS/Linux.
+
+## v0.2.1 changes
+
+- File-size reduction percentages, including separate exported-atlas PNG percentages.
+- ANSI-coloured counters, statuses and results, with plain-text/NO_COLOR support.
+- Separate input counters for each file type.
+- `A - Archive & Clean-up`, verified ZIPs under `archives/` and reusable session folders.
+- Version bumped to `0.2.1`.
 
 ## v0.2.0 changes
 
@@ -183,4 +228,3 @@ Dorothy imports only Python's standard library. Optional third-party executables
 - default credentials for MIB/QNX
 - default directories for assets in MIB/QNX
 - add line separators for clearer view
-- add CLI colors

@@ -117,12 +117,12 @@ class MultiFormatTests(unittest.TestCase):
         rebuilt,count=build_custom(self.ws,self.anim)
         self.assertEqual(count,0);self.assertEqual(rebuilt.read_bytes(),self.anim.read_bytes())
 
-    def test_menu_version_no_a_and_coffee_before_quit(self):
+    def test_menu_version_archive_a_and_coffee_before_quit(self):
         lines=[];app=App(self.root,ask=lambda _:'q',tell=lines.append)
         self.assertEqual(app.run(),0)
-        self.assertIn('Version: v0.2.0',lines)
+        self.assertIn('Version: v0.2.1',lines)
         self.assertIn('1 - Check integrity of input files',lines)
-        self.assertFalse(any(line.startswith('A - ') for line in lines))
+        self.assertIn('A - Archive & Clean-up',lines)
         self.assertIn('4 input files found (including companion metadata).',lines)
         coffee=next(i for i,line in enumerate(lines) if 'buycoffee.to' in line)
         bye=next(i for i,line in enumerate(lines) if 'yellow brick' in line)

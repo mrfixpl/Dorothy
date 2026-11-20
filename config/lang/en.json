@@ -9,6 +9,7 @@
     "3 - Extract All Assets Files",
     "4 - Optimise Textures inside Files",
     "5 - Build custom files with provided assets",
+    "A - Archive & Clean-up",
     "",
     "P - Pull .kzb files directly from MIB",
     "R - Refresh input scan",
@@ -24,7 +25,7 @@
   "integrity_ok": "OK: {file} — {objects} objects ({variant}).",
   "extracted": "Extracted {count} assets -> {path}",
   "built": "Built {path} — {count} modified assets.",
-  "optimised": "Built {path} — {count} changed embedded textures, {saved} container bytes saved.",
+  "optimised": "Built {path} — {before} -> {after} bytes; saved {saved} bytes ({percent}%). {count} changed embedded textures.",
   "texture_progress": "  Texture {index}/{total}: {name}",
   "failed": "FAILED: {file} — {reason}",
   "completed": "Completed: {ok} succeeded, {failed} failed.",
@@ -72,5 +73,10 @@
   "missing_atlas_companion": "JSON metadata has no matching .atlas file. Place the pair in the same folder.",
   "unsupported_input": "Unsupported input file type; no integrity check or conversion is available for this file.",
   "canim_optimisation": "CANIM stores raw pixels inside zlib. Trying lossless zlib strategies; image pixels and animation commands remain identical.",
-  "atlas_optimisation": "Atlas stores uncompressed pixels: container unchanged. Exported PNGs saved {saved} bytes; see exported/ beside the output atlas."
+  "atlas_optimisation": "Atlas stores uncompressed pixels: container unchanged. Exported PNGs: {before} -> {after} bytes; saved {saved} bytes ({percent}%). See exported/ beside the output atlas.",
+  "input_types": "KZB: {kzb} | CANIM: {canim} | ATLAS: {atlas} | JSON: {json} | Other: {other}",
+  "archive_note": "Archiving ALL files (including hidden files) in input/, output/ and custom/. These folders are cleaned only after the ZIP has been verified. Folder templates and empty .gitkeep files are retained.",
+  "archive_complete": "Verified archive: {path} — {files} files archived, {removed} files removed. Session folders are ready.",
+  "archive_incomplete": "Verified archive retained at {path}. Cleanup was interrupted or incomplete: {reason}. Remaining source files have not been removed.",
+  "archive_failed": "Archive failed before cleanup: {reason}. No source files were removed."
 }

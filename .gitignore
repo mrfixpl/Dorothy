@@ -11,3 +11,6 @@ custom/*
 !custom/.gitkeep
 output/*
 !output/.gitkeep
+
+archives/*
+!archives/.gitkeep

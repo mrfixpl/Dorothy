@@ -4,8 +4,11 @@ import json
 from pathlib import Path
 import subprocess
 import struct
+import zipfile
 import sys
 
+from .session_archive import archive_session, CleanupIncomplete
+from .terminal import Palette, size_change
 from .workflows import Workspace, integrity, extract_kzb, build_custom, optimise_file, pull, extract_file
 
 
@@ -54,9 +57,10 @@ class Languages:
 
 
 class App:
-    def __init__(self, root, language=None, ask=input, tell=print):
+    def __init__(self, root, language=None, ask=input, tell=print, color=None):
         self.workspace = Workspace(root)
         self.ask, self.tell = ask, tell
+        self.palette = Palette(color if color is not None else None if tell is print else False)
         self.settings = self.workspace.root/'config'/'settings.json'
         if language is None:
             try:
@@ -71,14 +75,38 @@ class App:
     def t(self, key, **values):
         return self.lang.text(key, **values)
 
+    def say(self, key, tone=None, **values):
+        # Numeric placeholders are independently coloured; translations contain
+        # no escape sequences and continue to use ordinary named placeholders.
+        for name,value in values.items():
+            if isinstance(value,(int,float)) or name=='percent':
+                field_tone='error' if name=='failed' and value else 'success' if name in ('ok','failed') else 'info'
+                values[name]=self.palette.paint(value,field_tone)
+        text=self.t(key,**values)
+        self.tell(self.palette.paint(text,tone) if tone else text)
+
+    def archive(self):
+        self.say('archive_note','warning')
+        try:
+            result=archive_session(self.workspace)
+            self.say('archive_complete','success',path=result['path'],files=result['files'],removed=result['removed'])
+            return True
+        except CleanupIncomplete as exc:
+            self.say('archive_incomplete','warning',path=exc.archive,reason=str(exc))
+            return False
+        except (OSError,ValueError,zipfile.BadZipFile,RuntimeError) as exc:
+            self.say('archive_failed','error',reason=str(exc))
+            return False
+
     def show(self):
         self.tell((self.workspace.root/'config'/'banner.txt').read_text())
         info = json.loads((self.workspace.root/'config'/'about.json').read_text(encoding='utf-8'))
-        self.tell(self.t('about_version', version='v'+info['version'].lstrip('v')))
+        self.say('about_version','info',version='v'+info['version'].lstrip('v'))
         self.tell(self.t('description'))
         self.tell('')
-        self.tell(self.t('file_count', count=len(self.workspace.files())))
-        self.tell(self.t('input_jobs', count=len(self.workspace.scan())))
+        self.say('file_count',count=len(self.workspace.files()))
+        self.say('input_types',**self.workspace.counts())
+        self.say('input_jobs',count=len(self.workspace.scan()))
         self.tell('')
         self.tell(self.t('question'))
         self.tell('')
@@ -89,38 +117,41 @@ class App:
     def batch(self, action):
         paths = self.workspace.scan()
         if not paths:
-            self.tell(self.t('no_files'))
+            self.say('no_files','warning')
             return False
         if action in ('1', '4', '5'):
             self.tell(self.t({'1':'integrity_note', '4':'optimise_note', '5':'custom_note'}[action]))
         succeeded = failed = 0
         for path in paths:
             display=path.relative_to(self.workspace.input).as_posix()
-            self.tell(self.t('processing', file=display))
+            self.say('processing','progress',file=display)
             try:
                 self.workspace.check_source(path)
                 if action == '1':
                     result = integrity(path)
-                    self.tell(self.t('integrity_ok', file=display, **{k:result[k] for k in ('objects','variant')}))
+                    self.say('integrity_ok','success',file=display,**{k:result[k] for k in ('objects','variant')})
                     for code, name in result['warnings']:
-                        self.tell(self.t(code, name=name))
+                        self.say(code,'warning',name=name)
                 elif action in ('2', '3'):
                     output, count = extract_file(self.workspace, path, action == '2')
-                    self.tell(self.t('extracted', count=count, path=output))
+                    self.say('extracted','success',count=count,path=output)
                 elif action == '4':
-                    progress = lambda index,total,name: self.tell(self.t('texture_progress', index=index,total=total,name=name))
-                    notice = lambda key,**values: self.tell(self.t(key,**values))
+                    progress = lambda index,total,name: self.say('texture_progress','progress',index=index,total=total,name=name)
+                    notice = lambda key,**values: self.say(key,'info',**values)
+                    before = path.stat().st_size
                     output, count, saved = optimise_file(self.workspace, path, progress, notice)
-                    self.tell(self.t('optimised', path=output, count=count, saved=saved))
+                    after = output.stat().st_size
+                    saved,percent=size_change(before,after)
+                    self.say('optimised','success' if saved>0 else 'warning' if saved<0 else 'info',path=output,count=count,saved=saved,before=before,after=after,percent=f'{percent:.2f}')
                 elif action == '5':
                     output, count = build_custom(self.workspace, path)
-                    self.tell(self.t('built', path=output, count=count))
+                    self.say('built','success',path=output,count=count)
                 succeeded += 1
             except (OSError, ValueError, IndexError, RecursionError, subprocess.SubprocessError, struct.error) as exc:
                 reason = str(exc) or type(exc).__name__
-                self.tell(self.t('failed', file=display, reason=self.t(reason) if reason in self.lang.strings else reason))
+                self.say('failed','error',file=display,reason=self.t(reason) if reason in self.lang.strings else reason)
                 failed += 1
-        self.tell(self.t('completed', ok=succeeded, failed=failed))
+        self.say('completed',ok=succeeded,failed=failed)
         return failed == 0
 
     def change_language(self):
@@ -132,15 +163,15 @@ class App:
         if not choice:
             return
         if not choice.isdigit() or not 1 <= int(choice) <= len(choices):
-            self.tell(self.t('language_invalid'))
+            self.say('language_invalid','warning')
             return
         code, data = choices[int(choice)-1]
         self.lang.load(code)
         try:
             self.settings.write_text(json.dumps({'language': code}, indent=2)+'\n', encoding='utf-8')
         except OSError as exc:
-            self.tell(self.t('settings_error', reason=str(exc)))
-        self.tell(self.t('language_changed', name=data['language_name']))
+            self.say('settings_error','error',reason=str(exc))
+        self.say('language_changed','success',name=data['language_name'])
 
     def pull(self):
         self.tell(self.t('pull_note'))
@@ -156,7 +187,7 @@ class App:
         if not port.isdigit():
             raise ValueError(self.t('invalid_port'))
         output, count = pull(self.workspace, host, user, int(port), folder, legacy)
-        self.tell(self.t('pulled', count=count, path=output))
+        self.say('pulled','success',count=count,path=output)
 
     def about(self):
         info = json.loads((self.workspace.root/'config'/'about.json').read_text(encoding='utf-8'))
@@ -183,6 +214,8 @@ class App:
                     continue
                 if option in ('1','2','3','4','5'):
                     self.batch(option)
+                elif option == 'A':
+                    self.archive()
                 elif option == 'L':
                     self.change_language()
                 elif option == 'C':
@@ -190,15 +223,15 @@ class App:
                 elif option == 'P':
                     self.pull()
                 else:
-                    self.tell(self.t('invalid_option'))
+                    self.say('invalid_option','warning')
                 self.ask(self.t('continue'))
             except EOFError:
                 return 0
             except KeyboardInterrupt:
-                self.tell(self.t('cancelled'))
+                self.say('cancelled','warning')
             except (OSError, ValueError) as exc:
                 reason = str(exc)
-                self.tell(self.t('failed', file='Dorothy', reason=self.t(reason) if reason in self.lang.strings else reason))
+                self.say('failed','error',file='Dorothy',reason=self.t(reason) if reason in self.lang.strings else reason)
 
 
 def main(root):
@@ -206,12 +239,12 @@ def main(root):
     english = Languages(Path(root)/'config'/'lang')
     parser = argparse.ArgumentParser(description=english.text('cli_description'))
     parser.add_argument('--root', type=Path, default=Path(root), help=english.text('cli_root'))
-    parser.add_argument('--task', choices=['1','2','3','4','5'], help=english.text('cli_task'))
+    parser.add_argument('--task', choices=['1','2','3','4','5','A'], help=english.text('cli_task'))
     parser.add_argument('--language', help=english.text('cli_language'))
     args = parser.parse_args()
     app = App(args.root, args.language)
     try:
-        return (0 if app.batch(args.task) else 1) if args.task else app.run()
+        return (0 if (app.archive() if args.task=='A' else app.batch(args.task)) else 1) if args.task else app.run()
     except KeyboardInterrupt:
         print(app.t('cancelled'))
         return 130
