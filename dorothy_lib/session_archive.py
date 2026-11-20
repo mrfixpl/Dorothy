@@ -142,7 +142,7 @@ def cleanup(workspace, files, directories):
         guard(workspace, entry)
         entry.path.unlink()
         removed += 1
-    keep = set(ROOTS) | {'input/kzb', 'input/canim', 'input/atlas'}
+    keep = set(ROOTS) | {'input/kzb', 'input/canim', 'input/boot', 'input/atlas'}
     for name in sorted(directories, key=lambda p: len(Path(p).parts), reverse=True):
         path = workspace.root/name
         if name in keep or not path.exists():
@@ -158,7 +158,7 @@ def cleanup(workspace, files, directories):
             raise ValueError('New or changed content remains: '+name)
         path.rmdir()
     # Restore the prepared skeleton even if the session originally lacked it.
-    for name in (*ROOTS, 'input/kzb', 'input/canim', 'input/atlas'):
+    for name in (*ROOTS, 'input/kzb', 'input/canim', 'input/boot', 'input/atlas'):
         path = workspace.root/name
         if path.is_symlink():
             raise ValueError('Directory changed before skeleton restoration: '+name)

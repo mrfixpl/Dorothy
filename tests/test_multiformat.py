@@ -120,7 +120,7 @@ class MultiFormatTests(unittest.TestCase):
     def test_menu_version_archive_a_and_coffee_before_quit(self):
         lines=[];app=App(self.root,ask=lambda _:'q',tell=lines.append)
         self.assertEqual(app.run(),0)
-        self.assertIn('Version: v0.2.1',lines)
+        self.assertIn('Version: v0.3.0',lines)
         self.assertIn('1 - Check integrity of input files',lines)
         self.assertIn('A - Archive & Clean-up',lines)
         self.assertIn('4 input files found (including companion metadata).',lines)

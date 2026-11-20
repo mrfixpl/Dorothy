@@ -48,7 +48,7 @@ class ArchiveTests(unittest.TestCase):
             for name,data in self.original.items():self.assertEqual(backup.read(name),data)
             self.assertIn('custom/empty_folder/',backup.namelist())
             self.assertFalse(any(name.startswith('archives/') for name in backup.namelist()))
-        for name in ('input/kzb','input/canim','input/atlas','output','custom'):
+        for name in ('input/kzb','input/canim','input/boot','input/atlas','output','custom'):
             self.assertTrue((self.root/name).is_dir())
         for name in self.original:
             if not name.endswith('.gitkeep'):self.assertFalse((self.root/name).exists())
@@ -180,7 +180,7 @@ class ArchiveTests(unittest.TestCase):
             ws=Workspace(temp)
             result=archives.archive_session(ws,STAMP)
             self.assertEqual(result['files'],0)
-            for name in ('input/kzb','input/canim','input/atlas','output','custom'):
+            for name in ('input/kzb','input/canim','input/boot','input/atlas','output','custom'):
                 self.assertTrue((ws.root/name).is_dir())
             with zipfile.ZipFile(result['path']) as backup:self.assertEqual(set(backup.namelist()),{'input/','output/','custom/'})
 
@@ -219,7 +219,7 @@ class PresentationTests(unittest.TestCase):
             for name in ('one.KZB','two.canim','three.atlas','three.JSON','other.bin'):(source/name).touch()
             lines=[];app=App(root,tell=lines.append,color=True);app.show()
             plain=[ANSI.sub('',line) for line in lines]
-            self.assertIn('KZB: 1 | CANIM: 1 | ATLAS: 1 | JSON: 1 | Other: 1',plain)
+            self.assertIn('KZB: 1 | CANIM: 1 | BOOT: 0 | ATLAS: 1 | JSON: 1 | Other: 1',plain)
             self.assertTrue(any('\x1b[36m1\x1b[0m' in line for line in lines))
             self.assertFalse(app.batch('1'))
             self.assertTrue(any('\x1b[31mFAILED:' in line for line in lines))

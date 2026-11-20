@@ -14,7 +14,7 @@ from .kzb import detect_variant, extracted_path, identify_file
 from .rebuild import rebuild, validate, read_modifications, write_new_file
 from .terminal import size_change
 from .images import png_signature, jpeg_signature, optimise, optimizer_tools
-from . import atlas, canim
+from . import atlas, canim, boot
 from .atlas import extract as extract_atlas
 
 
@@ -42,7 +42,7 @@ class Workspace:
         return [p for p in paths if not (p.suffix.lower()=='.json' and (p.parent,p.stem.casefold()) in atlas_keys)]
 
     def counts(self):
-        counts = dict.fromkeys(('kzb','canim','atlas','json','other'), 0)
+        counts = dict.fromkeys(('kzb','canim','boot','atlas','json','other'), 0)
         for path in self.files():
             extension = path.suffix.lower().lstrip('.')
             counts[extension if extension in counts else 'other'] += 1
@@ -50,7 +50,7 @@ class Workspace:
 
     def asset_key(self, path):
         relative=path.resolve().relative_to(self.input.resolve())
-        family={'.kzb':'kzb','.canim':'canim','.atlas':'atlas','.json':'atlas'}.get(path.suffix.lower(),'other')
+        family={'.kzb':'kzb','.canim':'canim','.boot':'boot','.atlas':'atlas','.json':'atlas'}.get(path.suffix.lower(),'other')
         parts=list(relative.parts[:-1])
         if parts and parts[0].lower()==family:parts=parts[1:]
         return Path(family,*parts,path.stem)
@@ -243,6 +243,10 @@ def integrity(path):
     if suffix=='.canim':
         info,_=canim.inspect(path.read_bytes())
         return dict(objects=info['image_count'],variant='ANIM1 '+','.join(info['image_opcodes']),warnings=[])
+    if suffix=='.boot':
+        info=boot.parse(path.read_bytes())
+        return dict(objects=info['image_count'],variant='MST2 SCRT/MIFA',
+                    warnings=[('boot_warning',message) for message in info['warnings']])
     if suffix=='.atlas':
         info,_,_=atlas.load(path)
         return dict(objects=len(info['entries']),variant='vc_tc_bin_v4',warnings=[])
@@ -257,6 +261,10 @@ def extract_file(workspace,path,resources_only=False):
     if suffix=='.atlas':
         target=workspace.destination(category,workspace.asset_key(path))
         return atlas.extract(path,target,resources_only)
+    if suffix=='.boot':
+        target=workspace.destination(category,workspace.asset_key(path))
+        info=boot.extract(path,target,resources_only)
+        return target,info['image_count']
     if suffix=='.canim':
         data=path.read_bytes();info,raw=canim.inspect(data)
         target=workspace.destination(category,workspace.asset_key(path),directory=True)
@@ -289,6 +297,13 @@ def custom_modifications(workspace,path,ignored,allow_empty=False):
 def build_custom(workspace,path):
     suffix=path.suffix.lower()
     if suffix=='.kzb':return build_custom_kzb(workspace,path)
+    if suffix=='.boot':
+        original=path.read_bytes();info=boot.parse(original)
+        mods=custom_modifications(workspace,path,boot.METADATA_FILES,allow_empty=info['image_count']==0)
+        result,changes=boot.rebuild_assets(original,mods)
+        output=workspace.built_destination('custom',path,'custom')
+        write_new_file(output,result)
+        return output,len(changes)
     if suffix=='.canim':
         info,_=canim.inspect(path.read_bytes())
         mods=custom_modifications(workspace,path,{'manifest.json','commands.bin','header.bin','container.anim'},allow_empty=info['image_count']==0)
@@ -319,6 +334,13 @@ def build_custom(workspace,path):
 def optimise_file(workspace,path,progress=None,notice=None):
     suffix=path.suffix.lower()
     if suffix=='.kzb':return optimise_kzb(workspace,path,progress)
+    if suffix=='.boot':
+        original=path.read_bytes()
+        if notice:notice('boot_optimisation')
+        result,changed=boot.optimise_container(original,progress)
+        output=workspace.built_destination('optimised',path,'optimised')
+        write_new_file(output,result)
+        return output,changed,len(original)-len(result)
     if suffix=='.canim':
         data=path.read_bytes();info,raw=canim.inspect(data)
         if notice:notice('canim_optimisation')
