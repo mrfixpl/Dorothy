@@ -3,8 +3,10 @@ __pycache__/
 .venv/
 .DS_Store
 config/settings.json
-input/*
-!input/.gitkeep
+input/**
+!input/
+!input/**/
+!input/**/.gitkeep
 custom/*
 !custom/.gitkeep
 output/*

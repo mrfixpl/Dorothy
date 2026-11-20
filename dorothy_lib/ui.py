@@ -6,7 +6,7 @@ import subprocess
 import struct
 import sys
 
-from .workflows import Workspace, integrity, extract_kzb, build_custom, optimise_kzb, pull, extract_atlases
+from .workflows import Workspace, integrity, extract_kzb, build_custom, optimise_file, pull, extract_file
 
 
 class Languages:
@@ -73,10 +73,12 @@ class App:
 
     def show(self):
         self.tell((self.workspace.root/'config'/'banner.txt').read_text())
+        info = json.loads((self.workspace.root/'config'/'about.json').read_text(encoding='utf-8'))
+        self.tell(self.t('about_version', version='v'+info['version'].lstrip('v')))
         self.tell(self.t('description'))
         self.tell('')
-        self.tell(self.t('file_count', count=len(self.workspace.scan())))
-        self.tell(self.t('atlas_count', count=len(self.workspace.scan('.atlas'))))
+        self.tell(self.t('file_count', count=len(self.workspace.files())))
+        self.tell(self.t('input_jobs', count=len(self.workspace.scan())))
         self.tell('')
         self.tell(self.t('question'))
         self.tell('')
@@ -85,38 +87,38 @@ class App:
         self.tell('')
 
     def batch(self, action):
-        paths = self.workspace.scan('.atlas' if action == 'A' else '.kzb')
+        paths = self.workspace.scan()
         if not paths:
-            self.tell(self.t('no_atlases' if action == 'A' else 'no_files'))
+            self.tell(self.t('no_files'))
             return False
         if action in ('1', '4', '5'):
             self.tell(self.t({'1':'integrity_note', '4':'optimise_note', '5':'custom_note'}[action]))
         succeeded = failed = 0
         for path in paths:
-            self.tell(self.t('processing', file=path.name))
+            display=path.relative_to(self.workspace.input).as_posix()
+            self.tell(self.t('processing', file=display))
             try:
+                self.workspace.check_source(path)
                 if action == '1':
                     result = integrity(path)
-                    self.tell(self.t('integrity_ok', file=path.name, **{k:result[k] for k in ('objects','variant')}))
+                    self.tell(self.t('integrity_ok', file=display, **{k:result[k] for k in ('objects','variant')}))
                     for code, name in result['warnings']:
                         self.tell(self.t(code, name=name))
                 elif action in ('2', '3'):
-                    output, count = extract_kzb(self.workspace, path, action == '2')
+                    output, count = extract_file(self.workspace, path, action == '2')
                     self.tell(self.t('extracted', count=count, path=output))
                 elif action == '4':
                     progress = lambda index,total,name: self.tell(self.t('texture_progress', index=index,total=total,name=name))
-                    output, count, saved = optimise_kzb(self.workspace, path, progress)
+                    notice = lambda key,**values: self.tell(self.t(key,**values))
+                    output, count, saved = optimise_file(self.workspace, path, progress, notice)
                     self.tell(self.t('optimised', path=output, count=count, saved=saved))
                 elif action == '5':
                     output, count = build_custom(self.workspace, path)
                     self.tell(self.t('built', path=output, count=count))
-                elif action == 'A':
-                    output, count = extract_atlases(self.workspace, path)
-                    self.tell(self.t('extracted', count=count, path=output))
                 succeeded += 1
             except (OSError, ValueError, IndexError, RecursionError, subprocess.SubprocessError, struct.error) as exc:
                 reason = str(exc) or type(exc).__name__
-                self.tell(self.t('failed', file=path.name, reason=self.t(reason) if reason in self.lang.strings else reason))
+                self.tell(self.t('failed', file=display, reason=self.t(reason) if reason in self.lang.strings else reason))
                 failed += 1
         self.tell(self.t('completed', ok=succeeded, failed=failed))
         return failed == 0
@@ -173,11 +175,13 @@ class App:
             try:
                 option = self.ask(self.t('select')).strip().upper()
                 if option == 'Q':
+                    info = json.loads((self.workspace.root/'config'/'about.json').read_text(encoding='utf-8'))
+                    self.tell(self.t('about_coffee', url=info['coffee_url']))
                     self.tell(self.t('bye'))
                     return 0
                 if option == 'R':
                     continue
-                if option in ('1','2','3','4','5','A'):
+                if option in ('1','2','3','4','5'):
                     self.batch(option)
                 elif option == 'L':
                     self.change_language()
@@ -202,7 +206,7 @@ def main(root):
     english = Languages(Path(root)/'config'/'lang')
     parser = argparse.ArgumentParser(description=english.text('cli_description'))
     parser.add_argument('--root', type=Path, default=Path(root), help=english.text('cli_root'))
-    parser.add_argument('--task', choices=['1','2','3','4','5','A'], help=english.text('cli_task'))
+    parser.add_argument('--task', choices=['1','2','3','4','5'], help=english.text('cli_task'))
     parser.add_argument('--language', help=english.text('cli_language'))
     args = parser.parse_args()
     app = App(args.root, args.language)

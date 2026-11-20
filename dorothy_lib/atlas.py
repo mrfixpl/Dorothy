@@ -78,12 +78,18 @@ def image_path(name):
     return Path('images', *parts)
 
 
-def extract(path, output=None):
+def companion_json(path):
+    candidates = [p for p in path.parent.iterdir() if p.is_file() and p.stem.casefold() == path.stem.casefold() and p.suffix.lower() == '.json']
+    require(len(candidates) <= 1, 'Ambiguous companion JSON files')
+    return candidates[0] if candidates else None
+
+
+def load(path):
     data = path.read_bytes()
     info, pixels, trailer = parse_atlas(data)
-    companion = path.with_suffix('.json')
+    companion = companion_json(path)
     names = {}
-    if companion.exists():
+    if companion is not None:
         document = json.loads(companion.read_text(encoding='utf-8-sig'))
         require(isinstance(document, dict) and isinstance(document.get('images'), list), 'Invalid JSON images mapping')
         for item in document['images']:
@@ -100,10 +106,21 @@ def extract(path, output=None):
         require(key not in used_paths, f'Duplicate asset output path: {relative}')
         used_paths.add(key)
         record['extracted_path'] = relative.as_posix()
+    info['mapping'] = companion.name if companion is not None else None
+    return info, pixels, trailer
+
+
+def extract(path, output=None, resources_only=False):
+    data = path.read_bytes()
+    info, pixels, trailer = load(path)
     output = Path(output) if output is not None else path.with_suffix('')
     output.mkdir(exist_ok=False)
-    (output/'atlas.png').write_bytes(png_bytes(info['width'], info['height'], info['channels'], pixels))
-    (output/'maxrect.bin').write_bytes(trailer)
+    if not resources_only:
+        (output/'atlas.png').write_bytes(png_bytes(info['width'], info['height'], info['channels'], pixels))
+        (output/'header.bin').write_bytes(data[:info['pixel_offset']])
+        (output/'maxrect.bin').write_bytes(trailer)
+        if info['mapping'] is not None:
+            (output/'mapping.json').write_bytes((path.parent/info['mapping']).read_bytes())
     for record in info['entries']:
         target = output/record['extracted_path']
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -111,9 +128,55 @@ def extract(path, output=None):
         record['pixels_sha256'] = hashlib.sha256(asset).hexdigest()
         target.write_bytes(png_bytes(record['width'], record['height'], info['channels'], asset))
     manifest = dict(source=path.name, source_sha256=hashlib.sha256(data).hexdigest(),
-                    format='vc_tc_bin_v4', mapping=companion.name if names else None,
+                    format='vc_tc_bin_v4',
                     row_order='top_to_bottom', **info)
     (output/'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     return output, len(info['entries'])
 
 
+
+
+def rgba_pixels(width, height, bpp, pixels):
+    # CANIM's PNG reader normalises LA/palettes to RGBA, and L/RGB remain native.
+    from .canim import convert_pixels
+    return convert_pixels(pixels, bpp, 4)
+
+
+def rebuild(path, replacements):
+    """Patch existing rectangles; retain packing, headers, gutters and trailer."""
+    from .canim import read_png
+    original = path.read_bytes()
+    info, pixels, _ = load(path)
+    expected = {r['extracted_path']:r for r in info['entries']}
+    require(not (set(replacements)-set(expected)), 'Unknown atlas asset paths: '+', '.join(sorted(set(replacements)-set(expected))))
+    buffer = bytearray(pixels)
+    changes = []
+    proposed = {}
+    for name, image in replacements.items():
+        r = expected[name]
+        w,h,bpp,decoded = read_png(image)
+        require((w,h)==(r['width'],r['height']), name+': dimensions must match reference')
+        rgba = rgba_pixels(w,h,bpp,decoded)
+        if info['channels']==2:
+            require(all(rgba[i]==rgba[i+1]==rgba[i+2] for i in range(0,len(rgba),4)), 'Colour replacement requires an RGBA atlas; LA atlas format is preserved')
+            native = bytes(value for i in range(0,len(rgba),4) for value in (rgba[i],rgba[i+3]))
+        else:
+            native = rgba
+        old = crop_pixels(pixels,info['width'],info['channels'],r)
+        if native != old:
+            changes.append(name)
+            proposed[name]=native
+    for name, native in proposed.items():
+        r=expected[name];channels=info['channels'];row_bytes=r['width']*channels
+        for row in range(r['height']):
+            target=((r['y']+row)*info['width']+r['x'])*channels
+            buffer[target:target+row_bytes]=native[row*row_bytes:(row+1)*row_bytes]
+    result=original[:info['pixel_offset']]+bytes(buffer)+original[info['pixel_end']:]
+    parsed,new_pixels,_=parse_atlas(result)
+    require(len(result)==len(original),'Atlas size changed unexpectedly')
+    # Verify every asset, including unmodified overlapping/shared rectangles.
+    for name,r in expected.items():
+        wanted=proposed.get(name)
+        if wanted is None:wanted=crop_pixels(pixels,info['width'],info['channels'],r)
+        require(crop_pixels(new_pixels,info['width'],info['channels'],r)==wanted,'Conflicting shared/overlapping atlas asset: '+name)
+    return result,changes
